@@ -1,0 +1,138 @@
+#房價 - 高級回歸技術
+import pandas as pd
+#訓練資料
+train_df= pd.read_csv('train.csv',encoding='utf-8')
+#print(train_df)
+#print(train_df['MSSubClass'].value_counts())
+#測試資料
+test_df= pd.read_csv('test.csv',encoding='utf-8')
+#print(test_df)
+#因為訓練資料跟測試資料差一筆所以先把它合併
+datas=pd.concat([train_df,test_df])
+#丟掉這兩個欄位
+datas=datas.drop(["Id","SalePrice"],axis=1)
+#要用這個才可以累積的加起來
+datas=datas.reset_index(drop=True)
+#print(datas)
+y_train= train_df["SalePrice"]
+#print(y_train)
+import matplotlib.pyplot as plt
+#%matplotlib inline
+#直方圖
+import seaborn
+#plt.show()
+seaborn.displot(y_train)
+#plt.show()
+from scipy.stats import skew
+from scipy.stats import boxcox_normmax
+import numpy as np
+y_train_loglp=np.log1p(y_train)
+seaborn.displot(y_train_loglp,kde=True, rug=False)
+#plt.show()
+#print("原本偏度: ",skew(y_train))
+#print("最佳lambda: ",boxcox_normmax(y_train+1))
+#print("調整後偏度: ",skew(y_train_loglp))
+seaborn.distplot(y_train_loglp)
+#plt.show()
+na=datas.isna().sum()
+#print(na[na>0].sort_values(ascending=False))
+#print(na[na>1000].index)
+aa = na[na>1000].index
+#砍null過多
+#print(datas.drop(aa,axis=1))
+dt = datas.dtypes
+#純數字的欄位
+#dt[dt!="object"].drop(["MSSubClass"])
+num = dt[dt!="object"].drop(["MSSubClass"])
+#print(num)
+num_idx=num.index
+#print(num_idx)
+datas_skew=datas[num_idx].apply(lambda s:skew(s.dropna()))
+#print(datas_skew.sort_values(ascending=False))
+saved=datas_skew[datas_skew>1]
+#print(saved)
+from scipy.special import boxcox1p
+def norm(s):
+    lambd=boxcox_normmax(s.dropna()+1)
+    return boxcox1p(s,lambd)
+saved=datas_skew[datas_skew>1].index
+datas[saved]=datas[saved].apply(norm)
+#提整篇度排序數值變小
+datas_skew=datas[num_idx].apply(lambda s:skew(s.dropna()))
+ss=datas_skew.sort_values(ascending=False)
+#print(ss)
+#PoolArea         14.985994調完還是超過10所以要把它捨棄
+datas=datas.drop(["PoolArea"],axis=1)
+#MSSubClass這不重要
+med=datas.median().drop(["MSSubClass"])
+datas=datas.fillna(med)
+'''
+ss=pd.get_dummies(datas)
+print(ss)
+
+'''
+#要先get_dummies處理過
+datas= pd.get_dummies(datas)
+#one hot encoding
+datas=pd.get_dummies(datas,columns=["MSSubClass"])
+#print(datas)
+from sklearn.preprocessing import MinMaxScaler,RobustScaler
+scaler = RobustScaler()
+datas_norm = pd.DataFrame(scaler.fit_transform(datas),columns=datas.columns)
+#print(datas_norm)
+x_train=datas_norm.iloc[:train_df.shape[0]]
+#print(x_train)
+x_test = datas_norm.iloc[train_df.shape[0]:]
+#print(x_test)
+pid=test_df["Id"]
+#print(pid)
+
+from sklearn.linear_model import Ridge,Lasso,ElasticNet
+from sklearn.linear_model import RidgeCV,LassoCV,ElasticNetCV
+
+cv=LassoCV(cv=10,n_jobs=4)
+cv.alpha_=cv.fit(x_train,y_train_loglp)
+print("Best alpha: ",cv.alpha_)
+print('--------------------------')
+print('截距',cv.intercept_)
+print('--------------------------')
+print('迴歸係數',cv.coef_)
+'''
+reg=Lasso(alpha=cv.alpha_)
+max_iter = 10
+reg.fit(x_train,y_train_loglp)
+pre=reg.predict(x_test)
+pre=np.expm1(pre)
+result=pd.DataFrame({"Id":pid,"SalePrice":pre})
+result.to_csv("lasso.csv",encoding="utf-8",index=False)
+print(result)
+print(reg.score(x_train,y_train_loglp))
+'''
+max_iter = 10
+cv.fit(x_train,y_train_loglp)
+pre=cv.predict(x_test)
+pre=np.expm1(pre)
+result=pd.DataFrame({"Id":pid,"SalePrice":pre})
+result.to_csv("lasso.csv",encoding="utf-8",index=False)
+print(result)
+print(cv.score(x_train,y_train_loglp))
+'''
+cvr = RidgeCV(cv=10)
+cvr.fit(x_train,y_train_loglp)
+print(cvr.alpha_)
+regr = Ridge(alpha=cvr.alpha_)
+print(regr.fit(x_train,y_train_loglp))
+prer = regr.predict(x_test)
+#沒有expml
+prer = np.exp(prer)
+result=pd.DataFrame({"Id":pid,"SalePrice":prer})
+result.to_csv("ridge.csv",encoding="utf-8",index=False)
+print(result)
+x=regr.score(x_train,y_train_loglp)
+print(x)
+from sklearn.linear_model import LinearRegression
+reg = LinearRegression()
+reg.fit(x_train,y_train_loglp)
+x=reg.score(x_train,y_train_loglp)
+print(x)
+'''
